@@ -163,10 +163,39 @@ def minimax(board, depth, alpha, beta, maximizing):
         return best
 
 
-def get_ai_move(board, depth=3):
+# Difficulty 1-9: (search_depth, random_move_chance)
+# Low difficulty = shallow search + high chance of picking a random legal move
+DIFFICULTY_SETTINGS = {
+    1: (1, 0.90),
+    2: (1, 0.65),
+    3: (1, 0.30),
+    4: (2, 0.08),
+    5: (3, 0.0),
+    6: (3, 0.0),
+    7: (4, 0.0),
+    8: (4, 0.0),
+    9: (5, 0.0),
+}
+
+DIFFICULTY_LABELS = {
+    1: "Beginner",
+    2: "Very Easy",
+    3: "Easy",
+    4: "Casual",
+    5: "Medium",
+    6: "Hard",
+    7: "Expert",
+    8: "Master",
+    9: "Impossible",
+}
+
+
+def get_ai_move(board, depth=3, random_chance=0.0):
     moves = list(board.legal_moves)
     if not moves:
         return None
+    if random_chance > 0 and random.random() < random_chance:
+        return random.choice(moves)
     random.shuffle(moves)
     maximizing_root = board.turn == chess.WHITE
     best_move = moves[0]
@@ -235,6 +264,7 @@ class ChessGame:
         self.game_over_msg = ""
         self.vs_computer   = False
         self.ai_color      = chess.BLACK
+        self.ai_difficulty = 5
         self.ai_thinking   = False
         self._ai_result    = None
         self._ai_thread    = None
@@ -262,6 +292,7 @@ class ChessGame:
     # Menu screen
     # ------------------------------------------------------------------
     def show_menu(self):
+        """Returns (vs_computer: bool, difficulty: int or None)."""
         btn_w, btn_h = 300, 60
         btn_x = WINDOW_SIZE // 2 - btn_w // 2
         btn_2p  = pygame.Rect(btn_x, 340, btn_w, btn_h)
@@ -275,9 +306,10 @@ class ChessGame:
                     sys.exit()
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if btn_2p.collidepoint(mx, my):
-                        return False
+                        return False, None
                     if btn_cpu.collidepoint(mx, my):
-                        return True
+                        diff = self.show_difficulty_menu()
+                        return True, diff
 
             self.screen.fill(BG_COLOR)
 
@@ -296,6 +328,98 @@ class ChessGame:
                 pygame.draw.rect(self.screen, STATUS_COLOR, rect, 2, border_radius=10)
                 t = self.btn_font.render(label, True, BTN_TEXT)
                 self.screen.blit(t, t.get_rect(center=rect.center))
+
+            hint = self.label_font.render(
+                "R = menu   F = flip board   U = undo   Esc = quit", True, (140, 140, 130)
+            )
+            self.screen.blit(hint, hint.get_rect(center=(WINDOW_SIZE // 2, WINDOW_SIZE + INFO_HEIGHT // 2)))
+
+            pygame.display.flip()
+            clock.tick(60)
+
+    def show_difficulty_menu(self):
+        """Returns chosen difficulty 1-9."""
+        # 3x3 grid of difficulty buttons
+        btn_w, btn_h = 180, 58
+        cols, rows = 3, 3
+        grid_w = cols * btn_w + (cols - 1) * 12
+        grid_x = WINDOW_SIZE // 2 - grid_w // 2
+        grid_y = 260
+        cell_step_x = btn_w + 12
+        cell_step_y = btn_h + 12
+
+        diff_rects = {}
+        for i, level in enumerate(range(1, 10)):
+            col = i % cols
+            row = i // cols
+            rect = pygame.Rect(
+                grid_x + col * cell_step_x,
+                grid_y + row * cell_step_y,
+                btn_w, btn_h,
+            )
+            diff_rects[level] = rect
+
+        back_rect = pygame.Rect(WINDOW_SIZE // 2 - 100, grid_y + 3 * cell_step_y + 10, 200, 46)
+        clock = pygame.time.Clock()
+        selected = 5  # highlighted level
+
+        # colours per difficulty band
+        def level_color(lvl, hover):
+            if lvl <= 3:
+                base = (60, 100, 60) if not hover else (80, 140, 80)
+            elif lvl <= 6:
+                base = (90, 80, 40) if not hover else (130, 115, 55)
+            else:
+                base = (110, 45, 45) if not hover else (155, 65, 65)
+            return base
+
+        while True:
+            mx, my = pygame.mouse.get_pos()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        return selected
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    for lvl, rect in diff_rects.items():
+                        if rect.collidepoint(mx, my):
+                            return lvl
+                    if back_rect.collidepoint(mx, my):
+                        return selected
+
+            self.screen.fill(BG_COLOR)
+
+            title_surf = self.title_font.render("DIFFICULTY", True, STATUS_COLOR)
+            self.screen.blit(title_surf, title_surf.get_rect(center=(WINDOW_SIZE // 2, 120)))
+
+            sub = self.label_font.render("Choose how hard the computer plays", True, TEXT_COLOR)
+            self.screen.blit(sub, sub.get_rect(center=(WINDOW_SIZE // 2, 195)))
+
+            sub2 = self.label_font.render(
+                "1 = very easy  /  9 = impossible", True, (160, 150, 130)
+            )
+            self.screen.blit(sub2, sub2.get_rect(center=(WINDOW_SIZE // 2, 220)))
+
+            for lvl, rect in diff_rects.items():
+                hover = rect.collidepoint(mx, my)
+                color = level_color(lvl, hover)
+                pygame.draw.rect(self.screen, color, rect, border_radius=8)
+                border_col = STATUS_COLOR if hover else (160, 140, 80)
+                pygame.draw.rect(self.screen, border_col, rect, 2, border_radius=8)
+                num_surf = self.btn_font.render(str(lvl), True, STATUS_COLOR)
+                lbl_surf = self.label_font.render(DIFFICULTY_LABELS[lvl], True, BTN_TEXT)
+                self.screen.blit(num_surf, num_surf.get_rect(
+                    centerx=rect.centerx, top=rect.top + 6))
+                self.screen.blit(lbl_surf, lbl_surf.get_rect(
+                    centerx=rect.centerx, bottom=rect.bottom - 6))
+
+            hover_back = back_rect.collidepoint(mx, my)
+            pygame.draw.rect(self.screen, BTN_HOVER if hover_back else BTN_COLOR, back_rect, border_radius=8)
+            pygame.draw.rect(self.screen, STATUS_COLOR, back_rect, 2, border_radius=8)
+            back_surf = self.label_font.render("← Back", True, BTN_TEXT)
+            self.screen.blit(back_surf, back_surf.get_rect(center=back_rect.center))
 
             hint = self.label_font.render(
                 "R = menu   F = flip board   U = undo   Esc = quit", True, (140, 140, 130)
@@ -391,7 +515,8 @@ class ChessGame:
             msg   = self.game_over_msg
             color = STATUS_COLOR
         elif self.ai_thinking:
-            msg   = "Computer is thinking..."
+            lbl = DIFFICULTY_LABELS.get(self.ai_difficulty, "")
+            msg   = f"Computer is thinking...  [{self.ai_difficulty} - {lbl}]"
             color = (180, 180, 255)
         elif self.board.is_check():
             turn  = "White" if self.board.turn == chess.WHITE else "Black"
@@ -400,7 +525,8 @@ class ChessGame:
         else:
             turn     = "White" if self.board.turn == chess.WHITE else "Black"
             move_num = self.board.fullmove_number
-            msg   = f"Move {move_num}  —  {turn} to move{mode_tag}    F=flip  R=menu  U=undo"
+            diff_tag = f"  Lvl {self.ai_difficulty}" if self.vs_computer else ""
+            msg   = f"Move {move_num}  -  {turn} to move{mode_tag}{diff_tag}    F=flip  R=menu  U=undo"
             color = TEXT_COLOR
 
         surf = self.status_font.render(msg, True, color)
@@ -488,7 +614,8 @@ class ChessGame:
         board_copy       = self.board.copy()
 
         def worker():
-            self._ai_result = get_ai_move(board_copy, depth=3)
+            depth, rand_chance = DIFFICULTY_SETTINGS.get(self.ai_difficulty, (3, 0.0))
+            self._ai_result = get_ai_move(board_copy, depth=depth, random_chance=rand_chance)
 
         self._ai_thread = threading.Thread(target=worker, daemon=True)
         self._ai_thread.start()
@@ -505,8 +632,9 @@ class ChessGame:
     # ------------------------------------------------------------------
     # Game management
     # ------------------------------------------------------------------
-    def new_game(self, vs_computer):
+    def new_game(self, vs_computer, difficulty=5):
         self.vs_computer   = vs_computer
+        self.ai_difficulty = difficulty if difficulty is not None else 5
         self.board         = chess.Board()
         self.deselect()
         self.game_over_msg = ""
@@ -520,8 +648,8 @@ class ChessGame:
     def run(self):
         clock = pygame.time.Clock()
 
-        vs_cpu = self.show_menu()
-        self.new_game(vs_cpu)
+        vs_cpu, difficulty = self.show_menu()
+        self.new_game(vs_cpu, difficulty)
 
         while True:
             self.poll_ai()
@@ -536,8 +664,8 @@ class ChessGame:
 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_r:
-                        vs_cpu = self.show_menu()
-                        self.new_game(vs_cpu)
+                        vs_cpu, difficulty = self.show_menu()
+                        self.new_game(vs_cpu, difficulty)
                     elif event.key == pygame.K_f:
                         self.flipped = not self.flipped
                     elif event.key == pygame.K_u:
